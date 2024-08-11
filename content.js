@@ -6,13 +6,6 @@ const topicsConfig = [
 
 // Function to check for new posts on the page
 async function checkForNewPosts() {
-    // Early check for API key
-    const apiKey = await getGroqApiKey();
-    if (!apiKey) {
-        console.error("No API key provided. Aborting analysis.");
-        return;
-    }
-
     const posts = document.querySelectorAll('[data-testid="cellInnerDiv"]');
 
     posts.forEach(async post => {
@@ -29,7 +22,7 @@ async function checkForNewPosts() {
         if (postId) {
             let analysis = await getCachedAnalysis(postId);
             if (!analysis) {
-                analysis = await analyzeTweet(postText, apiKey);
+                analysis = await analyzeTweet(postText);
                 await cacheAnalysis(postId, analysis);
             }
             applyPostVisibility(postId, analysis);
@@ -49,14 +42,14 @@ async function getCachedAnalysis(postId) {
 // Function to cache analysis
 async function cacheAnalysis(postId, analysis) {
     return new Promise((resolve) => {
-        chrome.storage.local.set({ [`analysis_${postId}`]: analysis }, resolve);
+        chrome.storage.local.set({[`analysis_${postId}`]: analysis}, resolve);
     });
 }
 
 // Function to apply post visibility based on analysis
 function applyPostVisibility(postId, analysis) {
     if (typeof analysis === 'object' && analysis !== null) {
-        const shouldHide = topicsConfig.some(topic => 
+        const shouldHide = topicsConfig.some(topic =>
             topic.topic in analysis && analysis[topic.topic] > topic.threshold
         );
 
@@ -91,16 +84,17 @@ function findPostElement(postId) {
         throw new Error('postId must be a string');
     }
     const cellInnerDivs = document.querySelectorAll('[data-testid="cellInnerDiv"]');
-    
+
     for (const div of cellInnerDivs) {
         const link = div.querySelector(`a[href*="/status/${postId}"]`);
         if (link) {
             return div;
         }
     }
-    
+
     return null; // Return null if no matching element is found
 }
+
 window.findPostElement = findPostElement;
 
 // Function to reset the cache (seenPostIds and analysis results)
@@ -119,51 +113,24 @@ window.resetCache = resetCache;
 
 console.log('To reset the cache, run resetCache() in the console.');
 
-// Function to analyze a tweet using the Groq API
-async function analyzeTweet(tweetText, apiKey) {
+// Function to analyze a tweet using the chrome built-in AI
+async function analyzeTweet(tweetText) {
     let retries = 0;
     const maxRetries = 3;
-    const messages = [
-        {
-            role: "system",
-            content: `Your task is to evaluate Tweets/X posts. Always respond in JSON. Follow this format:\n\n{\n${topicsConfig.map(topic => `    "${topic.topic}": 0.0`).join(',\n')}\n}\n\nRate the provided post from 0.0 to 1.0 for each topic. Here are the descriptions for each topic:\n\n${topicsConfig.map(topic => `${topic.topic}: ${topic.description}`).join('\n')}`
-        },
-        {
-            role: "user",
-            content: tweetText
-        }
-    ];
+    const systemPrompt = `Your task is to evaluate Tweets/X posts. Always respond in JSON. Follow this format:\n\n{\n${topicsConfig.map(topic => `    "${topic.topic}": 0.0`).join(',\n')}\n}\n\nRate the provided post from 0.0 to 1.0 for each topic. Here are the descriptions for each topic:\n\n${topicsConfig.map(topic => `${topic.topic}: ${topic.description}`).join('\n')}`;
+    const userPrompt = tweetText;
 
     while (retries < maxRetries) {
         try {
-            const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    "Authorization": `Bearer ${apiKey}`
-                },
-                body: JSON.stringify({
-                    messages: messages,
-                    model: "llama-3.1-8b-instant",
-                    temperature: 1,
-                    max_tokens: 1024,
-                    top_p: 1,
-                    stream: false,
-                    response_format: {
-                        type: "json_object"
-                    },
-                    stop: null
-                })
-            });
-
-            if (response.status === 400) {
-                retries++;
-                continue;
+            const session = await window.ai.createTextSession();
+            let result = await session.prompt(`${systemPrompt} <ctrl23>\n${userPrompt}`);
+            if ((result.startsWith(" ```json") || result.startsWith(" ```JSON")) && result.endsWith("```")) {
+                result = result.slice(8, -3);
             }
-
-            const data = await response.json();
-            return JSON.parse(data.choices[0].message.content);
+            session.destroy()
+            return JSON.parse(result);
         } catch (error) {
+            console.error('Error analyzing tweet:', error);
             retries++;
             if (retries === maxRetries) {
                 console.error("Max retries reached. Returning empty object.");
@@ -173,26 +140,6 @@ async function analyzeTweet(tweetText, apiKey) {
     }
 
     return {};
-}
-
-// Function to get or set the Groq API key
-async function getGroqApiKey() {
-    return new Promise((resolve) => {
-        chrome.storage.local.get(['GROQ_API_KEY'], result => {
-            if (result.GROQ_API_KEY) {
-                resolve(result.GROQ_API_KEY);
-            } else {
-                const apiKey = prompt("Please enter your Groq API key:");
-                if (apiKey) {
-                    chrome.storage.local.set({ GROQ_API_KEY: apiKey }, () => {
-                        resolve(apiKey);
-                    });
-                } else {
-                    resolve(null);
-                }
-            }
-        });
-    });
 }
 
 // Debounce function to limit how often the scroll event fires

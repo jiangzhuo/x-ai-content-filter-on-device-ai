@@ -2,7 +2,7 @@
 
 ## Overview
 
-The X Content Filter is a browser extension that analyzes and filters content on X.com based on configured topics. It uses the Groq API to perform the analysis.
+The X Content Filter is a browser extension that analyzes and filters content on X.com based on configured topics. It uses the Chrome on-device AI to perform the analysis.
 
 ## Installation
 
@@ -13,7 +13,7 @@ The X Content Filter is a browser extension that analyzes and filters content on
 
 ## Usage
 
-- The extension automatically analyzes and hides posts on X.com that exceed the configured thresholds using the Groq API.
+- The extension automatically analyzes and hides posts on X.com that exceed the configured thresholds using the Chrome on-device AI.
 - To reset the cache, run `resetCache()` in the browser console.
 
 ## Configuration
